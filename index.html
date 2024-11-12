@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DNS Monitor with AI Analysis</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+</head>
+<body class="bg-gray-900 text-white">
+    <div class="container mx-auto p-4">
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-blue-500 flex items-center gap-2">
+                <span class="material-icons">dns</span>
+                DNS Monitor with AI Analysis
+            </h1>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Domain Categories Chart -->
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h2 class="text-xl font-semibold mb-4">Domain Categories</h2>
+                <div id="categoriesChart" class="h-[300px]"></div>
+            </div>
+
+            <!-- Risk Score Distribution -->
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h2 class="text-xl font-semibold mb-4">Risk Score Distribution</h2>
+                <div id="riskChart" class="h-[300px]"></div>
+            </div>
+
+            <!-- Recent Queries -->
+            <div class="bg-gray-800 rounded-lg p-6 col-span-1 lg:col-span-2">
+                <h2 class="text-xl font-semibold mb-4">Recent Queries</h2>
+                <div class="overflow-x-auto">
+                    <table class="w-full">
+                        <thead>
+                            <tr class="text-left border-b border-gray-700">
+                                <th class="p-2">Time</th>
+                                <th class="p-2">Domain</th>
+                                <th class="p-2">Category</th>
+                                <th class="p-2">Risk Score</th>
+                                <th class="p-2">Analysis</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recentQueries"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Security Alerts -->
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h2 class="text-xl font-semibold mb-4">Security Alerts</h2>
+                <div id="alertsList" class="space-y-2"></div>
+            </div>
+
+            <!-- IP Management -->
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h2 class="text-xl font-semibold mb-4">IP Management</h2>
+                <div class="flex gap-2 mb-4">
+                    <input type="text" id="ipInput" 
+                           class="flex-1 bg-gray-700 rounded px-3 py-2"
+                           placeholder="Enter IP address">
+                    <button onclick="blockIP()" 
+                            class="bg-red-500 hover:bg-red-600 px-4 py-2 rounded">
+                        Block IP
+                    </button>
+                </div>
+                <div id="blockedIPs" class="space-y-2"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = new WebSocket('ws://localhost:8000/ws');
+        
+        function updateCharts(data) {
+            // Update categories chart
+            const categories = Object.entries(data.categories);
+            Plotly.newPlot('categoriesChart', [{
+                labels: categories.map(([cat, _]) => cat),
+                values: categories.map(([_, count]) => count),
+                type: 'pie',
+                hole: 0.4
+            }], {
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: '#fff' },
+                showlegend: true
+            });
+
+            // Update risk distribution chart
+            const riskScores = data.recent_queries.map(q => q.risk_score);
+            Plotly.newPlot('riskChart', [{
+                x: riskScores,
+                type: 'histogram',
+                marker: { color: '#4CAF50' }
+            }], {
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: '#fff' },
+                xaxis: { title: 'Risk Score' },
+                yaxis: { title: 'Count' }
+            });
+        }
+
+        function getRiskColor(score) {
+            if (score < 0.3) return 'text-green-500';
+            if (score < 0.7) return 'text-yellow-500';
+            return 'text-red-500';
+        }
+
+        function updateRecentQueries(queries) {
+            const tbody = document.querySelector('#recentQueries');
+            tbody.innerHTML = queries.map(q => `
+                <tr class="border-b border-gray-700">
+                    <td class="p-2">${q.timestamp}</td>
+                    <td class="p-2">${q.domain}</td>
+                    <td class="p-2">${q.category}</td>
+                    <td class="p-2 ${getRiskColor(q.risk_score)}">${q.risk_score.toFixed(2)}</td>
+                    <td class="p-2 text-sm">${q.analysis}</td>
+                </tr>
+            `).join('');
+        }
+
+        function updateAlerts(alerts) {
+            const alertsList = document.getElementById('alertsList');
+            alertsList.innerHTML = alerts.map(alert => `
+                <div class="bg-slate-700 border-l-4 border-red-500 p-3 rounded flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <span class="material-icons text-red-500">warning</span>
+                        <span>${alert}</span>
+                    </div>
+                    <span class="text-sm text-slate-400">${new Date().toLocaleTimeString()}</span>
+                </div>
+            `).join('');
+        }
+
+        function updateBlockedIPs(blockedIPs) {
+            const blockedIPsDiv = document.getElementById('blockedIPs');
+            blockedIPsDiv.innerHTML = blockedIPs.map(ip => `
+                <div class="bg-slate-700 p-3 rounded flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <span class="material-icons text-red-500">block</span>
+                        ${ip}
+                    </div>
+                    <button onclick="unblockIP('${ip}')" 
+                            class="bg-red-500 hover:bg-red-600 px-3 py-1 rounded text-sm flex items-center gap-1">
+                        <span class="material-icons text-sm">remove</span>
+                        Unblock
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        async function blockIP() {
+            const ip = document.getElementById('ipInput').value;
+            try {
+                const response = await fetch(`/block_ip/${ip}`, { method: 'POST' });
+                if (!response.ok) throw new Error('Failed to block IP');
+                document.getElementById('ipInput').value = '';
+            } catch (error) {
+                console.error('Error blocking IP:', error);
+            }
+        }
+
+        async function unblockIP(ip) {
+            try {
+                const response = await fetch(`http://localhost:8000/unblock_ip/${ip}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Failed to unblock IP: ${response.statusText}`);
+                }
+                
+                const result = await response.json();
+                console.log('Unblock result:', result);
+                
+                // Refresh the WebSocket connection to get updated data
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send('refresh');
+                }
+            } catch (error) {
+                console.error('Error unblocking IP:', error);
+                alert('Failed to unblock IP: ' + error.message);
+            }
+        }
+
+        ws.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            updateCharts(data);
+            updateAlerts(data.security_alerts);
+            updateRecentQueries(data.recent_queries);
+            updateBlockedIPs(data.blocked_ips);
+        };
+
+        ws.onclose = function() {
+            setTimeout(() => {
+                ws = new WebSocket('ws://localhost:8000/ws');
+            }, 1000);
+        };
+    </script>
+</body>
+</html>
