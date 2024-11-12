@@ -87,6 +87,3 @@ The project consists of three main components:
 ## Contributing
 Feel free to submit issues, fork the repository, and create pull requests for any improvements.
 
-## License
-MIT License
-=
